@@ -29,11 +29,11 @@ class ManifestVerifier {
     /**
      * This is Dumb API, but it's a package private class so la-de-da!
      * return:
-     *   null - Something went wrong, digests were not verified.
-     *   Optional.empty() - No signatures to verify, missing *-Digest entry in manifest, or nobody signed that particular entry
-     *   Optional.isPresent() - code signers!
+     *   {@link SignedState#invalid()} - Something went wrong, digests were not verified.
+     *   {@link SignedState#empty()} - No signatures to verify, missing *-Digest entry in manifest, or nobody signed that particular entry
+     *   {@link SignedState#ofSigners(CodeSigner[])} - code signers!
      */
-    Optional<CodeSigner[]> verify(final Manifest manifest, final Map<String, CodeSigner[]> pending,
+    SignedState verify(final Manifest manifest, final Map<String, CodeSigner[]> pending,
                                   final Map<String, CodeSigner[]> verified, final String name, final byte[] data) {
         if (DEBUG)
             log("[SJH] Verifying: " + name);
@@ -41,7 +41,7 @@ class ManifestVerifier {
         if (attr == null) {
             if (DEBUG)
                 log("[SJH]   No Manifest Entry");
-            return Optional.empty();
+            return SignedState.empty();
         }
 
         record Expected(MessageDigest hash, byte[] value){};
@@ -57,7 +57,7 @@ class ManifestVerifier {
         if (expected.isEmpty()) {
             if (DEBUG)
                 log("[SJH]   No Manifest Hashes");
-            return Optional.empty();
+            return SignedState.empty();
         }
 
         for (var exp : expected) {
@@ -71,7 +71,7 @@ class ManifestVerifier {
                 if (!Arrays.equals(exp.value(), actual)) {
                     if (DEBUG)
                         log("[SJH]   Failed: Invalid hashes");
-                    return null;
+                    return SignedState.invalid();
                 }
             }
         }
@@ -79,6 +79,28 @@ class ManifestVerifier {
         var signers = pending.remove(name);
         if (signers != null)
             verified.put(name, signers);
-        return Optional.ofNullable(signers);
+        return SignedState.ofSigners(signers);
+    }
+
+    public record SignedState(CodeSigner[] signers, boolean valid) {
+        public static SignedState ofSigners(CodeSigner[] signers) {
+            return new SignedState(signers, true);
+        }
+
+        public static SignedState invalid() {
+            return new SignedState(null, false);
+        }
+
+        public static SignedState empty() {
+            return new SignedState(null, true);
+        }
+
+        public CodeSigner[] orElse(final CodeSigner[] codeSigners)
+        {
+            if (signers() != null)
+                return signers();
+
+            return codeSigners;
+        }
     }
 }

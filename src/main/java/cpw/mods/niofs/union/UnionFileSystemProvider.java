@@ -130,7 +130,7 @@ public class UnionFileSystemProvider extends FileSystemProvider {
         if (parts.length > 1) {
             return getFileSystem(uri).getPath(parts[1]);
         } else {
-            return ((UnionFileSystem)getFileSystem(uri)).getRoot();
+            return ((UnionFileSystem)getFileSystem(uri)).root();
         }
     }
 

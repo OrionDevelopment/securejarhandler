@@ -76,7 +76,7 @@ public class UnionPath implements Path {
         // although this is uncommon. However, other stuff relies on it so leave it
         //if (!this.absolute)
         //    return null;
-        return this.fileSystem.getRoot();
+        return this.fileSystem.root();
     }
     
     @Override
@@ -260,7 +260,7 @@ public class UnionPath implements Path {
         if (isAbsolute())
             return this;
         else
-            return fileSystem.getRoot().resolve(this);
+            return fileSystem.root().resolve(this);
     }
 
     @Override

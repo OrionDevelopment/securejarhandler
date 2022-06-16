@@ -1,5 +1,7 @@
 package cpw.mods.niofs.union;
 
+import cpw.mods.jarhandling.IJarFileSystem;
+
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -15,7 +17,8 @@ import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
-public class UnionFileSystem extends FileSystem {
+public class UnionFileSystem extends FileSystem implements IJarFileSystem
+{
     private final UnionPath root = new UnionPath(this, "/");
     private final UnionPath notExistingPath = new UnionPath(this, "/SNOWMAN");
     private final UnionFileSystemProvider provider;
@@ -24,11 +27,11 @@ public class UnionFileSystem extends FileSystem {
     private final BiPredicate<String, String> pathFilter;
     private final Map<Path,EmbeddedFileSystemMetadata> embeddedFileSystems;
 
-    public Path getPrimaryPath() {
+    public Path primaryPath() {
         return basepaths.get(basepaths.size()-1);
     }
 
-    public BiPredicate<String, String> getFilesystemFilter() {
+    public BiPredicate<String, String> filesystemFilter() {
         return pathFilter;
     }
 
@@ -86,11 +89,17 @@ public class UnionFileSystem extends FileSystem {
     }
 
     @Override
+    public FileSystem fileSystem()
+    {
+        return this;
+    }
+
+    @Override
     public Iterable<Path> getRootDirectories() {
         return Collections.singletonList(root);
     }
 
-    public Path getRoot() {
+    public Path root() {
         return root;
     }
 

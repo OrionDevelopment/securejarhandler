@@ -37,7 +37,7 @@ public class TestUnionFS {
                 .map(Files::exists)
                 .map(f->()->assertTrue(f))
         );
-        var p = ufs.getRoot().resolve("subdir1/masktestd1.txt");
+        var p = ufs.root().resolve("subdir1/masktestd1.txt");
         p.subpath(1, 2);
     }
 
@@ -107,9 +107,9 @@ public class TestUnionFS {
         assertTrue(Files.notExists(t2));
         var sd1 = ufs.getPath("subdir1");
         var sdt1 = sd1.resolve("masktestsd1.txt");
-        var walk = Set.of(ufs.getRoot(), t1, t3, sd1, sdt1);
+        var walk = Set.of(ufs.root(), t1, t3, sd1, sdt1);
         assertDoesNotThrow(()-> {
-            try (var set = Files.walk(ufs.getRoot())) {
+            try (var set = Files.walk(ufs.root())) {
                 var paths = set.collect(Collectors.toSet());
                 assertEquals(walk, paths);
             }
@@ -127,7 +127,7 @@ public class TestUnionFS {
             all.getPath("subdir1/masktestsd1.txt")
         );
         assertDoesNotThrow(() -> {
-           try (var walk = Files.walk(all.getRoot()))  {
+           try (var walk = Files.walk(all.root()))  {
                var paths = walk.filter(Files::isRegularFile).collect(Collectors.toSet());
                assertEquals(all_expected, paths);
            }
@@ -138,7 +138,7 @@ public class TestUnionFS {
             some.getPath("masktest.txt")
         );
         assertDoesNotThrow(() -> {
-            try (var walk = Files.walk(some.getRoot()))  {
+            try (var walk = Files.walk(some.root()))  {
                 var paths = walk.filter(Files::isRegularFile).collect(Collectors.toSet());
                 assertEquals(some_expected, paths);
             }
@@ -150,11 +150,11 @@ public class TestUnionFS {
         final var dir1 = Paths.get("src", "test", "resources", "dir1.zip").toAbsolutePath().normalize();
         var fsp = (UnionFileSystemProvider)FileSystemProvider.installedProviders().stream().filter(fs-> fs.getScheme().equals("union")).findFirst().orElseThrow();
         var inner = fsp.newFileSystem((a,b) -> a.endsWith("/") || a.equals("masktest.txt"), dir1);
-        var outer = fsp.newFileSystem((a, b) -> true, inner.getRoot());
+        var outer = fsp.newFileSystem((a, b) -> true, inner.root());
         var path = outer.getPath("masktest.txt");
         var expected = Set.of(path);
         assertDoesNotThrow(() -> {
-            try (var walk = Files.walk(outer.getRoot()))  {
+            try (var walk = Files.walk(outer.root()))  {
                 var paths = walk.filter(Files::isRegularFile).collect(Collectors.toSet());
                 assertEquals(expected, paths);
             }

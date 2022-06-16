@@ -1,16 +1,15 @@
 package cpw.mods.jarhandling.impl;
 
+import cpw.mods.jarhandling.IJarFileSystem;
 import cpw.mods.jarhandling.JarMetadata;
 import cpw.mods.jarhandling.SecureJar;
-import cpw.mods.niofs.union.UnionFileSystem;
 import cpw.mods.niofs.union.UnionFileSystemProvider;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.module.ModuleDescriptor;
 import java.net.URI;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.nio.file.*;
 import java.nio.file.spi.FileSystemProvider;
 import java.security.CodeSigner;
 import java.util.*;
@@ -24,7 +23,9 @@ import java.util.jar.Manifest;
 
 import static java.util.stream.Collectors.*;
 
+@SuppressWarnings("resource")
 public class Jar implements SecureJar {
+
     private static final CodeSigner[] EMPTY_CODESIGNERS = new CodeSigner[0];
     private static final UnionFileSystemProvider UFSP = (UnionFileSystemProvider) FileSystemProvider.installedProviders().stream().filter(fsp->fsp.getScheme().equals("union")).findFirst().orElseThrow(()->new IllegalStateException("Couldn't find UnionFileSystemProvider"));
     private final Manifest manifest;
@@ -32,9 +33,9 @@ public class Jar implements SecureJar {
     private final Hashtable<String, CodeSigner[]> verifiedSigners = new Hashtable<>();
     private final ManifestVerifier verifier = new ManifestVerifier();
     private final Map<String, StatusData> statusData = new HashMap<>();
-    private final JarMetadata metadata;
-    private final UnionFileSystem filesystem;
-    private final boolean isMultiRelease;
+    private final JarMetadata    metadata;
+    private final IJarFileSystem filesystem;
+    private final boolean        isMultiRelease;
     private final Map<Path, Integer> nameOverrides;
     private Set<String> packages;
     private List<Provider> providers;
@@ -49,16 +50,16 @@ public class Jar implements SecureJar {
 
     @Override
     public Path getPrimaryPath() {
-        return filesystem.getPrimaryPath();
+        return filesystem.primaryPath();
     }
 
-    @Override
+        @Override
     public Optional<URI> findFile(final String name) {
-        var rel = filesystem.getPath(name);
+        var rel = filesystem.fileSystem().getPath(name);
         if (this.nameOverrides.containsKey(rel)) {
-            rel = this.filesystem.getPath("META-INF", "versions", this.nameOverrides.get(rel).toString()).resolve(rel);
+            rel = this.filesystem.fileSystem().getPath("META-INF", "versions", this.nameOverrides.get(rel).toString()).resolve(rel);
         }
-        return Optional.of(this.filesystem.getRoot().resolve(rel)).filter(Files::exists).map(Path::toUri);
+        return Optional.of(this.filesystem.root().resolve(rel)).filter(Files::exists).map(Path::toUri);
     }
 
     private record StatusData(String name, Status status, CodeSigner[] signers) {
@@ -67,12 +68,29 @@ public class Jar implements SecureJar {
         }
     }
 
-    @SuppressWarnings("unchecked")
     public Jar(final Supplier<Manifest> defaultManifest, final Function<SecureJar, JarMetadata> metadataFunction, final BiPredicate<String, String> pathfilter, final Path... paths) {
         var validPaths = Arrays.stream(paths).filter(Files::exists).toArray(Path[]::new);
         if (validPaths.length == 0)
             throw new UncheckedIOException(new IOException("Invalid paths argument, contained no existing paths: " + Arrays.toString(paths)));
-        this.filesystem = UFSP.newFileSystem(pathfilter, validPaths);
+        IJarFileSystem target;
+        if (validPaths.length == 1) {
+            //We have a single path as an entry, we do not need to union several paths together so, we can use a normal underlying FS implementation.
+            final Path path = validPaths[0];
+            try
+            {
+                final FileSystem fileSystem = FileSystems.newFileSystem(path, new HashMap<>());
+                target = new SimpleJarFileSystem(fileSystem, path, pathfilter);
+            }
+            catch (IOException e)
+            {
+                throw new RuntimeException(e);
+            }
+            catch (ProviderNotFoundException providerNotFoundException)
+            {
+            }
+        } else {
+            target = UFSP.newFileSystem(pathfilter, validPaths);
+        }
         try {
             Manifest mantmp = null;
             for (int x = validPaths.length - 1; x >= 0; x--) { // Walk backwards because this is what cpw wanted?
@@ -114,7 +132,7 @@ public class Jar implements SecureJar {
         }
         this.isMultiRelease = Boolean.parseBoolean(getManifest().getMainAttributes().getValue("Multi-Release"));
         if (this.isMultiRelease) {
-            var vers = filesystem.getRoot().resolve("META-INF/versions");
+            var vers = filesystem.root().resolve("META-INF/versions");
             try (var walk = Files.walk(vers)){
                 var allnames = walk.filter(p1 ->!p1.isAbsolute())
                         .filter(path1 -> !Files.isDirectory(path1))
@@ -149,7 +167,7 @@ public class Jar implements SecureJar {
         if (statusData.containsKey(name)) return statusData.get(name).signers;
 
         var signers = verifier.verify(this.manifest, pendingSigners, verifiedSigners, name, bytes);
-        if (signers == null) {
+        if (!signers.valid()) {
             StatusData.add(name, Status.INVALID, null, this);
             return null;
         } else {
@@ -206,7 +224,7 @@ public class Jar implements SecureJar {
     @Override
     public Set<String> getPackages() {
         if (this.packages == null) {
-            try (var walk = Files.walk(this.filesystem.getRoot())) {
+            try (var walk = Files.walk(this.filesystem.root())) {
                 this.packages = walk
                     .filter(path->path.getNameCount()>0)
                     .filter(path->!path.getName(0).toString().equals("META-INF"))
@@ -226,11 +244,11 @@ public class Jar implements SecureJar {
     @Override
     public List<Provider> getProviders() {
         if (this.providers == null) {
-            final var services = this.filesystem.getRoot().resolve("META-INF/services/");
+            final var services = this.filesystem.root().resolve("META-INF/services/");
             if (Files.exists(services)) {
                 try (var walk = Files.walk(services)) {
                     this.providers = walk.filter(path->!Files.isDirectory(path))
-                        .map((Path path1) -> Provider.fromPath(path1, filesystem.getFilesystemFilter()))
+                        .map((Path path1) -> Provider.fromPath(path1, filesystem.filesystemFilter()))
                         .toList();
                 } catch (IOException e) {
                     throw new UncheckedIOException(e);
@@ -244,12 +262,12 @@ public class Jar implements SecureJar {
 
     @Override
     public Path getPath(String first, String... rest) {
-        return filesystem.getPath(first, rest);
+        return filesystem.fileSystem().getPath(first, rest);
     }
 
     @Override
     public Path getRootPath() {
-        return filesystem.getPath("");
+        return filesystem.fileSystem().getPath("");
     }
 
     @Override
